@@ -3,6 +3,7 @@
 
 from random import randrange
 from operator import itemgetter
+import math
 
 #INPUT--------------------------------------------------------------
 
@@ -81,24 +82,56 @@ def find_best_split(sample):
         return (best_var, split_value, sorted_sample[:best_index_allvars], sorted_sample[best_index_allvars:])
 
 def eval_split(sorted_sample, index):
-    #Use GINI measure: weighted sum of squares of proportions in each class on each side
-    #of the split. Start by counting classes on each side of the split.
-    counts_before_split = []
-    counts_after_split = []
-    total_before_split = index
-    total_after_split = len(sorted_sample) - index
+    #Use information gain: Compute the entropy of the distribution of classes prior to splitting, and
+    #also the weighted sum of the entropies of two resulting distributions after the split. A larger
+    #difference in these two computed values indicates a better split.
+    counts_total = []
+    counts_left = []
+    counts_right = []
+    #Compute proportion of individuals on each side of the split.
+    proportion_left = index/float(len(sorted_sample))
+    proportion_right = (len(sorted_sample) - index)/float(len(sorted_sample))
+    #Tally up the counts of classes prior to splitting, and in each resulting list after splitting.
     for i in range(0, len(classes)):
-        counts_before_split.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[:index]))
-        counts_after_split.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[index:]))
-    #Compute the sum of squares of proportions on each side of the split.
-    G_left = 0
-    G_right = 0
-    for j in range(0, len(classes)):
-        G_left = G_left + (float(counts_before_split[j]) / total_before_split) ** 2
-        G_right = G_right + (float(counts_after_split[j]) / total_after_split) ** 2
-    #Sum the two values, weighted by the proportion on each side of the split.
-    G = (float(total_before_split) / len(sorted_sample)) * G_left + (float(total_after_split) / len(sorted_sample)) * G_right
-    return G
+        counts_total.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample))
+        counts_left.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[:index]))
+        counts_right.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[index:]))
+    #Calculate information gain.
+    info_gain = entropy(counts_total) - ((proportion_left*entropy(counts_left))+(proportion_right*entropy(counts_right)))
+    return info_gain
+
+def entropy(freq_list):
+    #Scale the list so its sum is one.
+    prob_list = [x/float(sum(freq_list)) for x in freq_list]
+    #Compute each term in the sum which defines information entropy. We need to deal with the case
+    #where one of the frequencies is zero separately to avoid a domain issue.
+    e_list = []
+    for x in prob_list:
+        if x > 0:
+            e_list.append(-x*math.log(x,2))
+        elif x == 0:
+            e_list.append(float(0))
+    return sum(e_list)
+
+#def eval_split(sorted_sample, index):
+#    #Use GINI measure: weighted sum of squares of proportions in each class on each side
+#    #of the split. Start by counting classes on each side of the split.
+#    counts_left = []
+#    counts_right = []
+#    n_left = index
+#    n_right = len(sorted_sample) - index
+#    for i in range(0, len(classes)):
+#        counts_left.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[:index]))
+#        counts_right.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[index:]))
+#    #Compute the sum of squares of proportions on each side of the split.
+#    G_left = 0
+#    G_right = 0
+#    for j in range(0, len(classes)):
+#        G_left = G_left + (float(counts_left[j]) / n_left) ** 2
+#        G_right = G_right + (float(counts_right[j]) / n_right) ** 2
+#    #Sum the two values, weighted by the proportion on each side of the split.
+#    G = (float(n_left) / len(sorted_sample)) * G_left + (float(n_right) / len(sorted_sample)) * G_right
+#    return G
 
 #DECISION TREE-------------------------------------------------------
 

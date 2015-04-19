@@ -7,4 +7,4 @@ Run forester.py to do classification of quantitative data. Training data goes in
 
 Each of the three data files must consist of comma separated values. Variable names go in the first row, and class names in the last column of the training and testing data. The three data sets must share the same arbitrary number of variables, and all must be quantitative save for the class names, which should not be present in prediction.csv. Adjusting the parameters of the forest (number of decision trees, decision tree depth, and sample size) can be done by changing the values in the build_forest call.
 
-Future work: Categorical variables, automated cross-validation, entropy-based splitting criterion.
+Future work: Categorical variables, automated cross-validation.
