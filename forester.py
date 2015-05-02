@@ -53,58 +53,58 @@ def find_best_split(sample):
     else:
         best_var = 0
         best_index_allvars = 0
-        best_goodness_allvars = 0
+        best_info_gain_allvars = 0
         #Loop over all non-class variables in the data set.
         for variable in range(0, len(names) - 1):
             #Sort the sample by that variable
             sorted_sample = sorted(sample, key=itemgetter(variable))
             best_split_index = 0
-            best_split_goodness = 0
+            best_info_gain = 0
             #Evaluate every possible splitting index and keep the best.
             for index,individual in enumerate(sorted_sample):
                 #Individuals whose data values are < index end up on the left side of the split
                 #so splitting at the first individual is not splitting at all.
                 if(index != 0):
-                    split_goodness = eval_split(sorted_sample, index)
-                    if(split_goodness > best_split_goodness):
+                    info_gain = eval_split(sorted_sample, index)
+                    if(info_gain > best_info_gain):
                         best_split_index = index
-                        best_split_goodness = split_goodness
+                        best_info_gain = info_gain
             #Hold on to the best split, both the variable and split index.
-            if(best_split_goodness > best_goodness_allvars):
+            if(best_info_gain > best_info_gain_allvars):
                 best_var = variable
                 best_index_allvars = best_split_index
-                best_goodness_allvars = best_split_goodness
+                best_info_gain_allvars = best_info_gain
         #Return the best variable and the value to split on, as well as the two halves after the split.
-        #Note that the split_vales are rounded to four decimal places to make the output pretty. In
-        #applications where variables may take very small values this can be changed.
+        #Note that the split vales are rounded to four decimal places to make the output pretty. In
+        #applications where variables may take very small values this should be changed.
         sorted_sample = sorted(sample, key=itemgetter(best_var))
         split_value = round(0.5 * (sorted_sample[best_index_allvars][best_var] + sorted_sample[best_index_allvars - 1][best_var]),4)
         return (best_var, split_value, sorted_sample[:best_index_allvars], sorted_sample[best_index_allvars:])
 
 def eval_split(sorted_sample, index):
-    #Use information gain: Compute the entropy of the distribution of classes prior to splitting, and
-    #also the weighted sum of the entropies of two resulting distributions after the split. A larger
-    #difference in these two computed values indicates a better split.
+    #Use information gain: Compute the entropy of that class distribution in the sample, and compute the 
+    #weighted sum of the entropies of the two resulting class distributions on each side of the split. 
+    #A higher difference mean more information gain, and a better split. For GINI impurity based splitting
+    #see older versions.
     counts_total = []
     counts_left = []
     counts_right = []
     #Compute proportion of individuals on each side of the split.
     proportion_left = index/float(len(sorted_sample))
     proportion_right = (len(sorted_sample) - index)/float(len(sorted_sample))
-    #Tally up the counts of classes prior to splitting, and in each resulting list after splitting.
+    #Tally up the counts of classes prior to splitting, and on each side of the split.
     for i in range(0, len(classes)):
         counts_total.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample))
         counts_left.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[:index]))
         counts_right.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[index:]))
-    #Calculate information gain.
-    info_gain = entropy(counts_total) - ((proportion_left*entropy(counts_left))+(proportion_right*entropy(counts_right)))
-    return info_gain
+    #Calculate entropies and information gain.
+    return entropy(counts_total)-((proportion_left*entropy(counts_left))+(proportion_right*entropy(counts_right)))
 
 def entropy(freq_list):
     #Scale the list so its sum is one.
     prob_list = [x/float(sum(freq_list)) for x in freq_list]
-    #Compute each term in the sum which defines information entropy. We need to deal with the case
-    #where one of the frequencies is zero separately to avoid a domain issue.
+    #Compute each term in the sum which defines information entropy. We need to deal with the indeterminate
+    #form which arises when one of the frequencies is zero separately to avoid a domain issue.
     e_list = []
     for x in prob_list:
         if x > 0:
@@ -112,26 +112,6 @@ def entropy(freq_list):
         elif x == 0:
             e_list.append(float(0))
     return sum(e_list)
-
-#def eval_split(sorted_sample, index):
-#    #Use GINI measure: weighted sum of squares of proportions in each class on each side
-#    #of the split. Start by counting classes on each side of the split.
-#    counts_left = []
-#    counts_right = []
-#    n_left = index
-#    n_right = len(sorted_sample) - index
-#    for i in range(0, len(classes)):
-#        counts_left.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[:index]))
-#        counts_right.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[index:]))
-#    #Compute the sum of squares of proportions on each side of the split.
-#    G_left = 0
-#    G_right = 0
-#    for j in range(0, len(classes)):
-#        G_left = G_left + (float(counts_left[j]) / n_left) ** 2
-#        G_right = G_right + (float(counts_right[j]) / n_right) ** 2
-#    #Sum the two values, weighted by the proportion on each side of the split.
-#    G = (float(n_left) / len(sorted_sample)) * G_left + (float(n_right) / len(sorted_sample)) * G_right
-#    return G
 
 #DECISION TREE-------------------------------------------------------
 
@@ -222,6 +202,7 @@ raw_validation_data = parse_csv('validation.csv')
 raw_prediction_data = parse_csv('prediction.csv')
 
 #Strip variable names and convert numerical values to floats.
+#Everybody loves global variables, right?
 training_data = raw_training_data[1:]
 floatify(training_data)
 validation_data = raw_validation_data[1:]
@@ -256,4 +237,3 @@ print validate_forest(rf)
 #Note that running the program multiple times on the same prediction data will
 #append the new classifications instead of overwriting previous results.
 make_predictions(rf)
-
