@@ -1,239 +1,268 @@
-#Minimalist Random Forest Classifier
+#Random Forest Classifier
 #Brendan Cordy, 2014
 
 from random import randrange
+from random import shuffle
 from operator import itemgetter
-import math
+from math import log
 
-#INPUT--------------------------------------------------------------
+#Datasets------------------------------------------------------------------------------------------------
 
-#Data files are csv. First row consists of variable names, all variables are quantitative
-#except for the class names, which must be in the last column. Extra empty lines and extra
-#commas at the end of rows are not a problem.
-def parse_csv(filename):
-    with open(filename,'r') as file:
-        parsed_data = [line.rstrip('\n').split(',') for line in file]
-        fix_empty_rows = [x for x in parsed_data if x != ['']]
-        fix_extra_commas = [[x for x in y if x != ''] for y in fix_empty_rows]
-        return fix_extra_commas
+class DataCSV(object):
+    def __init__(self, str_data, vrs, cls, ind):
+        self.str_data = str_data
+        self.variables = vrs
+        self.classes = cls
+        self.indivs = ind
 
-#Convert numerical data entries to floats, in place.
-def floatify(rows_of_data):
-    for r in rows_of_data:
-        for i,c in enumerate(r):
-           if is_number(c):
-               r[i] = float(c)
+    #Input data with classifications given, to be used for training.
+    @classmethod
+    def from_training_data(cls, filename):
+        with open(filename,'r') as input_file:
+            input_data = [line.rstrip('\n').rstrip('\r').split(',') for line in input_file]
 
-def is_number(s):
-    pieces = s.split('.')
-    if len(pieces) > 2:
-        return False
-    else:
-        return all([x.isdigit() for x in pieces])
+        #Ignore empty rows (an extra newline at the end of the file will trigger this).
+        no_empty_rows = [x for x in input_data if x != ['']]
+        str_data = no_empty_rows
 
-#SAMPLING------------------------------------------------------------
+        #Extract variable names from the top row.
+        variables = str_data[0]
+        #Convert strings representing values of quantitative variables to floats. The last entry in each
+        #row will be the class name, so don't attempt to convert that to a float.
+        indivs = [[float(val) for val in line[:-1]]+[line[-1]] for line in str_data[1:]]
+        #Extract class names and remove duplicates.
+        classes = list(set([row[-1] for row in indivs]))
 
-def random_sample_with_replacement(n):
-    sample = []
-    for i in range(0,n):
-        j=randrange(0,len(training_data))
-        sample.append(training_data[j])
-    return sample
+        print "Data for " + str(len(indivs)) + " individuals with " + str(len(variables)-1) + " quantitative variables."
+        print "Classes: " + str(classes)
 
-#SPLITTING------------------------------------------------------------
+        return cls(str_data, variables, classes, indivs)
 
-def find_best_split(sample):
-    #If the sample contains only one class, return that class.
-    classes_in_sample = list(set([x[len(sample[0]) - 1] for x in sample]))
-    if len(classes_in_sample) == 1:
-        #The -1 in the first entry below is a flag that there is only one class in the sample,
-        #and that class is returned as the first element of the list in the third slot.
-        return (-1, 0, [classes_in_sample[0]], [])
-    #Otherwise, we need to search for the best split.
-    else:
-        best_var = 0
-        best_index_allvars = 0
-        best_info_gain_allvars = 0
-        #Loop over all non-class variables in the data set.
-        for variable in range(0, len(names) - 1):
+    #Input data without classifications given. A list of possible classes must be provided.
+    @classmethod
+    def from_prediction_data(cls, filename, classes):
+        with open(filename,'r') as input_file:
+            input_data = [line.rstrip('\n').rstrip('\r').split(',') for line in input_file]
+
+        #Ignore empty rows (an extra newline at the end of the file will trigger this).
+        no_empty_rows = [x for x in input_data if x != ['']]
+        str_data = no_empty_rows
+
+        #Extract variable names from the top row.
+        variables = str_data[0]
+        #Convert strings representing values of quantitative variables to floats.
+        indivs = [[float(val) for val in line] for line in str_data[1:]]
+
+        return cls(str_data, variables, classes, indivs)
+
+    #Return a random sample (with replacement) of n individuals from the data set.
+    def to_sample(self):
+        return Sample(self.indivs, self.variables)
+
+    #Return a random sample (with replacement) of n individuals from the data set.
+    def random_sample(self, n):
+        sample_data = []
+        for i in range(0, n):
+            j = randrange(0, len(self.indivs))
+            sample_data.append(self.indivs[j])
+        return Sample(sample_data, self.variables)
+
+    #Randomly reorder the individuals in the data set.
+    def randomize_order(self):
+        shuffle(self.indivs)
+
+    #Partition in the individuals into k more or less equally sized disjoint subsets. Return the ith such subset
+    #as a new dataset, and its complement as another. Used for cross-validation.
+    def validation_partition(self, i, k):
+        first_row = (i - 1) * (len(self.indivs) / k)
+        #If this is the last fold (last subset), make sure to include all the data.
+        if i == k:
+            last_row = len(self.indivs)
+        else:
+            last_row = (i) * (len(self.indivs) / k)
+
+        valid_data = DataCSV(
+            self.str_data[0] + self.str_data[first_row:last_row],
+            self.variables,
+            self.classes,
+            self.indivs[first_row:last_row]
+        )
+        train_data = DataCSV(
+            self.str_data[0] + self.str_data[0:first_row] + self.str_data[last_row:len(self.str_data)],
+            self.variables,
+            self.classes,
+            self.indivs[0:first_row] + self.indivs[last_row:len(self.indivs)]
+        )
+
+        return train_data, valid_data
+
+    #Write the data as a csv file.
+    def write(self, filename):
+        lines = []
+        variables_row = (','.join(self.variables))
+        lines.append(variables_row)
+        #Convert all data values to strings and build list of lines.
+        for indiv in self.indivs:
+            for index,value in enumerate(indiv):
+                indiv[index] = str(value)
+            indiv_row = (','.join(indiv))
+            lines.append(indiv_row)
+
+        with open(filename, 'w') as out_file:
+            out_file.write('\n'.join(lines))
+
+#Samples-------------------------------------------------------------------------------------------------
+
+class Sample(object):
+    #Collect classes present in the sample by extracting each individual's class, then removing duplicates.
+    def __init__(self, sample_indivs, variables):
+        self.indivs = sample_indivs
+        self.variables = variables
+        self.classes = list(set([x[-1] for x in sample_indivs]))
+
+    #Calculate the split with the largest information gain, and return the two samples obtained by splitting.
+    def find_best_split(self):
+        best_var, best_index_all, best_info_gain_all = 0, 0, 0
+        #Loop over all non-class variables (columns) in the data set, to find the best one to split on.
+        for column in range(0, len(self.variables) - 1):
             #Sort the sample by that variable
-            sorted_sample = sorted(sample, key=itemgetter(variable))
-            best_split_index = 0
-            best_info_gain = 0
-            #Evaluate every possible splitting index and keep the best.
-            for index,individual in enumerate(sorted_sample):
-                #Individuals whose data values are < index end up on the left side of the split
-                #so splitting at the first individual is not splitting at all.
-                if(index != 0):
-                    info_gain = eval_split(sorted_sample, index)
-                    if(info_gain > best_info_gain):
-                        best_split_index = index
-                        best_info_gain = info_gain
-            #Hold on to the best split, both the variable and split index.
-            if(best_info_gain > best_info_gain_allvars):
-                best_var = variable
-                best_index_allvars = best_split_index
-                best_info_gain_allvars = best_info_gain
-        #Return the best variable and the value to split on, as well as the two halves after the split.
-        #Note that the split vales are rounded to four decimal places to make the output pretty. In
-        #applications where variables may take very small values this should be changed.
-        sorted_sample = sorted(sample, key=itemgetter(best_var))
-        split_value = round(0.5 * (sorted_sample[best_index_allvars][best_var] + sorted_sample[best_index_allvars - 1][best_var]),4)
-        return (best_var, split_value, sorted_sample[:best_index_allvars], sorted_sample[best_index_allvars:])
+            self.indivs.sort(key=itemgetter(column))
+            best_split_index, best_info_gain = 0, 0
+            #Evaluate every possible splitting index.
+            for i in range(1, len(self.indivs)):
+                info_gain = self.eval_split(i)
+                if info_gain > best_info_gain:
+                    best_split_index, best_info_gain = i, info_gain
+            #If this variable's best split is the best of all splits yet observed, keep it.
+            if best_info_gain > best_info_gain_all:
+                best_var, best_index_all, bext_info_gain_all = column, best_split_index, best_info_gain
 
-def eval_split(sorted_sample, index):
-    #Use information gain: Compute the entropy of that class distribution in the sample, and compute the 
-    #weighted sum of the entropies of the two resulting class distributions on each side of the split. 
-    #A higher difference mean more information gain, and a better split. For GINI impurity based splitting
-    #see older versions.
-    counts_total = []
-    counts_left = []
-    counts_right = []
-    #Compute proportion of individuals on each side of the split.
-    proportion_left = index/float(len(sorted_sample))
-    proportion_right = (len(sorted_sample) - index)/float(len(sorted_sample))
-    #Tally up the counts of classes prior to splitting, and on each side of the split.
-    for i in range(0, len(classes)):
-        counts_total.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample))
-        counts_left.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[:index]))
-        counts_right.append(sum(Indiv.count(classes[i]) for Indiv in sorted_sample[index:]))
-    #Calculate entropies and information gain.
-    return entropy(counts_total)-((proportion_left*entropy(counts_left))+(proportion_right*entropy(counts_right)))
+        #Return the best variable and the value to split on, as well as the two halves after the split. Note
+        #that the split vales are rounded to four decimal places. In data sets with variables that range over
+        #a very small set of values this should be changed.
+        self.indivs.sort(key=itemgetter(best_var))
+        #The split value is the median of the values in the two individuals closest to the split.
+        split_value = round(0.5 * (self.indivs[best_index_all][best_var] + self.indivs[best_index_all - 1][best_var]), 4)
+        left_side_sample = Sample(self.indivs[:best_index_all], self.variables)
+        right_side_sample = Sample(self.indivs[best_index_all:], self.variables)
 
+        return best_var, split_value, left_side_sample, right_side_sample
+
+    #Evaluate split using information gain: Compute the entropy of that class distribution in the sample,
+    #and compute the weighted sum of the entropies of the two resulting class distributions on each side of
+    #the split. A higher difference mean more information gain, and a better split.
+    def eval_split(self, index):
+        counts_total, counts_left, counts_right = [], [], []
+        #Compute proportion of individuals on each side of the split (assume the data is already sorted).
+        prop_left = index/float(len(self.indivs))
+        prop_right = (len(self.indivs) - index)/float(len(self.indivs))
+        #Tally up the counts of classes prior to splitting, and the counts on each side of the split.
+        for i in range(0, len(self.classes)):
+            counts_total.append(sum(indiv.count(self.classes[i]) for indiv in self.indivs))
+            counts_left.append(sum(indiv.count(self.classes[i]) for indiv in self.indivs[:index]))
+            counts_right.append(sum(indiv.count(self.classes[i]) for indiv in self.indivs[index:]))
+        #Calculate entropies and return information gain.
+        return entropy(counts_total) - ((prop_left * entropy(counts_left)) + (prop_right * entropy(counts_right)))
+
+#DecisionTree--------------------------------------------------------------------------------------------
+
+class DecisionTree(object):
+    def __init__(self, sample, depth):
+        #If there is only one class in the sample, this node is a leaf labelled with that class.
+        if len(sample.classes) == 1:
+            self.leaf = True
+            self.cls = sample.classes[0]
+        #If this node is at maximum depth, it's a leaf labelled with the most common class in the sample.
+        elif depth == 0:
+            self.leaf = True
+            self.cls = max(sample.classes, key=sample.classes.count)
+        #Otherwise, find the best split and create two new subtrees.
+        else:
+            self.leaf = False
+            self.split_var, self.split_val, left_sample, right_sample = sample.find_best_split()
+            self.left = DecisionTree(left_sample, depth - 1)
+            self.right = DecisionTree(right_sample, depth - 1)
+
+    def classify(self, indiv):
+        if self.leaf:
+            return self.cls
+        else:
+            if indiv[self.split_var] <= self.split_val:
+                return self.left.classify(indiv)
+            else:
+                return self.right.classify(indiv)
+
+#RandomForest--------------------------------------------------------------------------------------------
+
+class RandomForest(object):
+    #Construct a forest of decision trees built with random samples of a given size from a given dataset.
+    def __init__(self, data, num_trees, max_depth, sample_size):
+        self.data = data
+        self.classes = data.classes
+        self.num_trees = num_trees
+        self.max_depth = max_depth
+        self.sample_size = sample_size
+        self.trees = []
+        for i in range(num_trees):
+            sample = data.random_sample(sample_size)
+            self.trees.append(DecisionTree(sample, max_depth))
+
+    def classify(self, indiv):
+        #Create a dictionary to tally up the votes of each of the decision trees.
+        votes = {x : 0 for x in self.classes}
+        for tree in self.trees:
+            votes[tree.classify(indiv)] += 1
+        #Find the class with the largest number of votes.
+        winning_class = max(votes.iteritems(), key=itemgetter(1))[0]
+        return winning_class
+
+    def cross_validate(self, k):
+        self.data.randomize_order()
+        correct_class_rates = []
+        #Partition individuals in the dataset into disjoint subsets of size k.
+        for i in range(1, k + 1):
+            train_subset, valid_subset = self.data.validation_partition(i,k)
+            #Create a random forest with the larger training portion of the partition.
+            subset_forest = RandomForest(train_subset, self.num_trees, self.max_depth, self.sample_size)
+
+            #Classify the individuals in the validation part of the partition using the new forest.
+            count_cor, count_inc = 0, 0
+            for indiv in valid_subset.indivs:
+                #Check if the predicted class matches.
+                if subset_forest.classify(indiv) == indiv[-1]:
+                    count_cor += 1
+                else:
+                    count_inc += 1
+
+            total = count_cor + count_inc
+            correct_class_rates.append(100 * (float(count_cor) / total))
+            print "Fold " + str(i) + ": " + str(count_cor) + " of " + str(total) + " individuals classified correctly."
+
+        avg_correct_rate = sum(correct_class_rates) / float(len(correct_class_rates))
+        print "Overall success rate: " + str(round(avg_correct_rate, 1)) + "%"
+
+    def write_predictions(self, filename):
+        prediction_data = DataCSV.from_prediction_data(filename, self.classes)
+        #Add the class as a new variable in the prediction data.
+        prediction_data.variables.append(self.data.variables[-1])
+        #Add the classification for each individual.
+        for indiv in prediction_data.indivs:
+            indiv.append(self.classify(indiv))
+
+        prediction_data.write(filename)
+
+#Top-Level Helper Functions------------------------------------------------------------------------------
+
+#Compute the entropy of a list of frequencies.
 def entropy(freq_list):
     #Scale the list so its sum is one.
-    prob_list = [x/float(sum(freq_list)) for x in freq_list]
+    prob_list = [x / float(sum(freq_list)) for x in freq_list]
+    ent = 0
     #Compute each term in the sum which defines information entropy. We need to deal with the indeterminate
     #form which arises when one of the frequencies is zero separately to avoid a domain issue.
-    e_list = []
     for x in prob_list:
         if x > 0:
-            e_list.append(-x*math.log(x,2))
+            ent += -x * log(x,2)
         elif x == 0:
-            e_list.append(float(0))
-    return sum(e_list)
-
-#DECISION TREE-------------------------------------------------------
-
-def build_decision_tree(sample, height):
-    #Each node has the form [var,split_val,left,right] where left and right are nodes.
-    #or classes.
-    (split_var, split_val, left_side, right_side) = find_best_split(sample)
-    #If there was only one class in the sample, return that class. Recall that find_best_split will
-    #detect this and return that class as the first element of the list left_side.
-    if split_var == -1:
-        return left_side[0]
-    #If this node is a leaf, return the most common class in the sample.
-    elif height == 0:
-        strip_classes = list(set([x[len(sample[1]) - 1] for x in sample]))
-        return max(set(strip_classes), key=strip_classes.count)
-    else:
-        return [split_var, split_val, build_decision_tree(left_side, height - 1), build_decision_tree(right_side, height - 1)]
-
-def classify_individual(indiv, tree):
-    #If the current node is a leaf (class name), return that leaf.
-    if isinstance(tree, basestring):
-        return tree
-    #If not, check if the split variable is less than or equal to the split value and move down the
-    #tree in the right direction.
-    else:
-        if indiv[tree[0]] <= tree[1]:
-            return classify_individual(indiv, tree[2])
-        else:
-            return classify_individual(indiv, tree[3])
-
-#RANDOM FOREST-------------------------------------------------------
-
-def build_forest(forest_size, height, sample_size):
-    forest = []
-    for i in range(0, forest_size):
-        forest.append(build_decision_tree(random_sample_with_replacement(sample_size), height))
-    return forest
-
-def classify_with_forest(indiv, forest):
-    votes = []
-    #Initialize the list of votes.
-    for i in range(0, len(classes)):
-        votes.append(0)
-    #Find the class each tree votes for and increment the list of votes in the right index.
-    for j in range(0, len(forest)):
-        tree_vote = classify_individual(indiv, forest[j])
-        for k in range(0,len(classes)):
-            if(tree_vote == classes[k]):
-                votes[k] += 1
-    winner_index = votes.index(max(votes))
-    return classes[winner_index]
-
-def validate_forest(forest):
-    #Keep track of correct and incorrect classifications.
-    counts = [0,0]
-    for indiv in validation_data:
-        #Check if the predicted class matches.
-        if(classify_with_forest(indiv,forest) == indiv[len(indiv) - 1]):
-            counts[0] += 1
-        else:
-            counts[1] += 1
-    return 100*(float(counts[0]) / (len(validation_data)))
-           
-
-#PREDICTION----------------------------------------------------------
-
-def make_predictions(forest):
-    #Classify each individual in the prediction data.
-    for indiv in prediction_data:
-        indiv.append(classify_with_forest(indiv, forest))
-    #Write the classified data to the prediction data file.
-    with open('prediction.csv', 'w') as pred_file:
-        names_row = (','.join(names))
-        pred_file.write(names_row)
-        #Convert prediction data to strings and write row by row.
-        for indiv in prediction_data:
-            pred_file.write('\n')
-            for i,attrib in enumerate(indiv):
-                indiv[i] = str(attrib)
-            indiv_row = (','.join(indiv))
-            pred_file.write(indiv_row)
-    
-#EXECUTION-----------------------------------------------------------
-
-#Parse the training, testing, and prediction csv files.
-raw_training_data = parse_csv('training.csv')
-raw_validation_data = parse_csv('validation.csv')
-raw_prediction_data = parse_csv('prediction.csv')
-
-#Strip variable names and convert numerical values to floats.
-#Everybody loves global variables, right?
-training_data = raw_training_data[1:]
-floatify(training_data)
-validation_data = raw_validation_data[1:]
-floatify(validation_data)
-prediction_data = raw_prediction_data[1:]
-floatify(prediction_data)
-
-#Extract variable names and class names from the training data.
-names = raw_training_data[0]
-classes = list(set([x[len(training_data[1]) - 1] for x in training_data]))
-
-#Echo the training data and class names as a sanity check.
-print "Training Data:"
-print training_data
-print "\n"
-print "Classes: "
-print classes
-print "\n"
-print "Forest: "
-
-#Build and validate the random forest. The three parameters are:
-#1 - The number of decision trees in the forest.
-#2 - The maximum depth of the trees in the forest.
-#3 - The size of the random sample used to build each decision tree.
-rf = build_forest(100, 3, 30)
-print rf
-print "\n"
-print "Percentage of Validation Data Classifed Correctly: "
-print validate_forest(rf)
-
-#Classify the prediction data, and write the results to the prediction data file.
-#Note that running the program multiple times on the same prediction data will
-#append the new classifications instead of overwriting previous results.
-make_predictions(rf)
+            ent += float(0)
+    return ent
