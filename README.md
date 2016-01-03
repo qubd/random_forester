@@ -22,18 +22,14 @@ Now that the training data has been parsed, it can be used to train a random for
 To validate the random forest model, call the `cross_validate` routine, which takes a positive integer k > 1 as an argument, and performs k-fold cross validation, using the same sample size and maximum tree depth used to construct the model. The number of correctly classified individuals in each fold is reported, as well as the overall rate of correct classification. Note every time the model is cross validated, the training data is randomly reordered before being partitioned into folds. This way repeated calls can yield new information.
 
 ```
->>>iris_forest.cross_validate(6)
-Fold 1: 25 of 25 individuals classified correctly.
-Fold 2: 23 of 25 individuals classified correctly.
-Fold 3: 23 of 25 individuals classified correctly.
-Fold 4: 24 of 25 individuals classified correctly.
-Fold 5: 23 of 25 individuals classified correctly.
-Fold 6: 25 of 25 individuals classified correctly.
+>>>iris_forest.cross_validate(3)
+Fold 1: 48 of 50 individuals classified correctly.
+Fold 2: 49 of 50 individuals classified correctly.
+Fold 3: 46 of 50 individuals classified correctly.
 Overall success rate: 95.3%
-
 ```
 
-In order to classify new data, put it into a CSV file with the same format as the training data. Of course, the final column, corresponding to the classes, will not be present. To use the random forest to classify each individual and append that column, call `write_predictions`, providing it with the name of the CSV file to be read and written to.
+In order to classify new data, put it into a CSV file with the same format as the training data. Of course, the final column corresponding to the classes will not be present. To use the random forest to classify the individuals and append the column of classes, call `write_predictions`, providing it with the name of the CSV file to be read and updated.
 
 ```
 >>>iris_forest.write_predictions('iris_predictions.csv')
