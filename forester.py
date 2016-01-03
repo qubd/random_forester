@@ -250,6 +250,7 @@ class RandomForest(object):
             indiv.append(self.classify(indiv))
 
         prediction_data.write(filename)
+        print "Classified " + str(len(prediction_data.indivs)) + " individuals."
 
 #Top-Level Helper Functions------------------------------------------------------------------------------
 
